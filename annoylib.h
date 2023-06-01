@@ -4,6 +4,8 @@
 #ifndef ANNOY_ANNOYLIB_H
 #define ANNOY_ANNOYLIB_H
 
+#include <chrono>
+
 #include <stdio.h>
 #include <sys/stat.h>
 #ifndef _MSC_VER
@@ -166,20 +168,18 @@ inline bool remap_memory_and_truncate(void** _ptr,
 
 
 
+
+
+
+
+
+
 namespace {
 
 template<typename S, typename Node>
 inline Node* get_node_ptr(const void* _nodes, const size_t _s, const S i) {
   return (Node*)((uint8_t *)_nodes + (_s * i));
 }
-
-
-
-
-
-
-
-
 
 
 template<typename T>
@@ -194,190 +194,9 @@ inline T dot(const T* x, const T* y, int f) {
 }
 
 template<typename T>
-inline T manhattan_distance(const T* x, const T* y, int f) {
-  T d = 0.0;
-  for (int i = 0; i < f; i++)
-    d += fabs(x[i] - y[i]);
-  return d;
-}
-
-template<typename T>
-inline T euclidean_distance(const T* x, const T* y, int f) {
-  // Don't use dot-product: avoid catastrophic cancellation in #314.
-  T d = 0.0;
-  for (int i = 0; i < f; ++i) {
-    const T tmp=*x - *y;
-    d += tmp * tmp;
-    ++x;
-    ++y;
-  }
-  return d;
-}
-
-#ifdef ANNOYLIB_USE_AVX
-// Horizontal single sum of 256bit vector.
-inline float hsum256_ps_avx(__m256 v) {
-  const __m128 x128 = _mm_add_ps(_mm256_extractf128_ps(v, 1), _mm256_castps256_ps128(v));
-  const __m128 x64 = _mm_add_ps(x128, _mm_movehl_ps(x128, x128));
-  const __m128 x32 = _mm_add_ss(x64, _mm_shuffle_ps(x64, x64, 0x55));
-  return _mm_cvtss_f32(x32);
-}
-
-template<>
-inline float dot<float>(const float* x, const float *y, int f) {
-  float result = 0;
-  if (f > 7) {
-    __m256 d = _mm256_setzero_ps();
-    for (; f > 7; f -= 8) {
-      d = _mm256_add_ps(d, _mm256_mul_ps(_mm256_loadu_ps(x), _mm256_loadu_ps(y)));
-      x += 8;
-      y += 8;
-    }
-    // Sum all floats in dot register.
-    result += hsum256_ps_avx(d);
-  }
-  // Don't forget the remaining values.
-  for (; f > 0; f--) {
-    result += *x * *y;
-    x++;
-    y++;
-  }
-  return result;
-}
-
-template<>
-inline float manhattan_distance<float>(const float* x, const float* y, int f) {
-  float result = 0;
-  int i = f;
-  if (f > 7) {
-    __m256 manhattan = _mm256_setzero_ps();
-    __m256 minus_zero = _mm256_set1_ps(-0.0f);
-    for (; i > 7; i -= 8) {
-      const __m256 x_minus_y = _mm256_sub_ps(_mm256_loadu_ps(x), _mm256_loadu_ps(y));
-      const __m256 distance = _mm256_andnot_ps(minus_zero, x_minus_y); // Absolute value of x_minus_y (forces sign bit to zero)
-      manhattan = _mm256_add_ps(manhattan, distance);
-      x += 8;
-      y += 8;
-    }
-    // Sum all floats in manhattan register.
-    result = hsum256_ps_avx(manhattan);
-  }
-  // Don't forget the remaining values.
-  for (; i > 0; i--) {
-    result += fabsf(*x - *y);
-    x++;
-    y++;
-  }
-  return result;
-}
-
-template<>
-inline float euclidean_distance<float>(const float* x, const float* y, int f) {
-  float result=0;
-  if (f > 7) {
-    __m256 d = _mm256_setzero_ps();
-    for (; f > 7; f -= 8) {
-      const __m256 diff = _mm256_sub_ps(_mm256_loadu_ps(x), _mm256_loadu_ps(y));
-      d = _mm256_add_ps(d, _mm256_mul_ps(diff, diff)); // no support for fmadd in AVX...
-      x += 8;
-      y += 8;
-    }
-    // Sum all floats in dot register.
-    result = hsum256_ps_avx(d);
-  }
-  // Don't forget the remaining values.
-  for (; f > 0; f--) {
-    float tmp = *x - *y;
-    result += tmp * tmp;
-    x++;
-    y++;
-  }
-  return result;
-}
-
-#endif
-
-#ifdef ANNOYLIB_USE_AVX512
-template<>
-inline float dot<float>(const float* x, const float *y, int f) {
-  float result = 0;
-  if (f > 15) {
-    __m512 d = _mm512_setzero_ps();
-    for (; f > 15; f -= 16) {
-      //AVX512F includes FMA
-      d = _mm512_fmadd_ps(_mm512_loadu_ps(x), _mm512_loadu_ps(y), d);
-      x += 16;
-      y += 16;
-    }
-    // Sum all floats in dot register.
-    result += _mm512_reduce_add_ps(d);
-  }
-  // Don't forget the remaining values.
-  for (; f > 0; f--) {
-    result += *x * *y;
-    x++;
-    y++;
-  }
-  return result;
-}
-
-template<>
-inline float manhattan_distance<float>(const float* x, const float* y, int f) {
-  float result = 0;
-  int i = f;
-  if (f > 15) {
-    __m512 manhattan = _mm512_setzero_ps();
-    for (; i > 15; i -= 16) {
-      const __m512 x_minus_y = _mm512_sub_ps(_mm512_loadu_ps(x), _mm512_loadu_ps(y));
-      manhattan = _mm512_add_ps(manhattan, _mm512_abs_ps(x_minus_y));
-      x += 16;
-      y += 16;
-    }
-    // Sum all floats in manhattan register.
-    result = _mm512_reduce_add_ps(manhattan);
-  }
-  // Don't forget the remaining values.
-  for (; i > 0; i--) {
-    result += fabsf(*x - *y);
-    x++;
-    y++;
-  }
-  return result;
-}
-
-template<>
-inline float euclidean_distance<float>(const float* x, const float* y, int f) {
-  float result=0;
-  if (f > 15) {
-    __m512 d = _mm512_setzero_ps();
-    for (; f > 15; f -= 16) {
-      const __m512 diff = _mm512_sub_ps(_mm512_loadu_ps(x), _mm512_loadu_ps(y));
-      d = _mm512_fmadd_ps(diff, diff, d);
-      x += 16;
-      y += 16;
-    }
-    // Sum all floats in dot register.
-    result = _mm512_reduce_add_ps(d);
-  }
-  // Don't forget the remaining values.
-  for (; f > 0; f--) {
-    float tmp = *x - *y;
-    result += tmp * tmp;
-    x++;
-    y++;
-  }
-  return result;
-}
-
-#endif
-
- 
-template<typename T>
 inline T get_norm(T* v, int f) {
   return sqrt(dot(v, v, f));
 }
-
-
 
 template<typename T, typename Random, typename Distance, typename Node>
 inline void two_means(const vector<Node*>& nodes, int f, 
@@ -446,12 +265,6 @@ inline void two_means(const vector<Node*>& nodes, int f,
 
 
 } // namespace
-
-
-
-
-
-
 
 
 
@@ -552,9 +365,6 @@ struct Angular : Base {
   static inline void create_split(const vector<Node<S, T>*>& nodes, 
               int f, size_t s, Random& random, Node<S, T>* n) {
 
-    // printf("----------------------- create_split()\n");
-
-
     Node<S, T>* p = (Node<S, T>*)alloca(s);
     Node<S, T>* q = (Node<S, T>*)alloca(s);
 
@@ -595,307 +405,6 @@ struct Angular : Base {
   }
 };
 
-
-struct DotProduct : Angular {
-  template<typename S, typename T>
-  struct Node {
-    /*
-     * This is an extension of the Angular node with an extra attribute for the scaled norm.
-     */
-    S n_descendants;
-    S children[2]; // Will possibly store more than 2
-    T dot_factor;
-    T v[ANNOYLIB_V_ARRAY_SIZE];
-  };
-
-  static const char* name() {
-    return "dot";
-  }
-  template<typename S, typename T>
-  static inline T distance(const Node<S, T>* x, const Node<S, T>* y, int f) {
-    return -dot(x->v, y->v, f);
-  }
-
-  template<typename Node>
-  static inline void zero_value(Node* dest) {
-    dest->dot_factor = 0;
-  }
-
-  template<typename S, typename T>
-  static inline void init_node(Node<S, T>* n, int f) {
-  }
-
-  template<typename T, typename Node>
-  static inline void copy_node(Node* dest, const Node* source, const int f) {
-    memcpy(dest->v, source->v, f * sizeof(T));
-    dest->dot_factor = source->dot_factor;
-  }
-
-  template<typename S, typename T, typename Random>
-  static inline void create_split(const vector<Node<S, T>*>& nodes, int f, size_t s, Random& random, Node<S, T>* n) {
-    Node<S, T>* p = (Node<S, T>*)alloca(s);
-    Node<S, T>* q = (Node<S, T>*)alloca(s);
-    DotProduct::zero_value(p); 
-    DotProduct::zero_value(q);
-    two_means<T, Random, DotProduct, Node<S, T> >(nodes, f, random, true, p, q);
-    for (int z = 0; z < f; z++)
-      n->v[z] = p->v[z] - q->v[z];
-    n->dot_factor = p->dot_factor - q->dot_factor;
-    DotProduct::normalize<T, Node<S, T> >(n, f);
-  }
-
-  template<typename T, typename Node>
-  static inline void normalize(Node* node, int f) {
-    T norm = sqrt(dot(node->v, node->v, f) + pow(node->dot_factor, 2));
-    if (norm > 0) {
-      for (int z = 0; z < f; z++)
-        node->v[z] /= norm;
-      node->dot_factor /= norm;
-    }
-  }
-
-  template<typename S, typename T>
-  static inline T margin(const Node<S, T>* n, const T* y, int f) {
-    return dot(n->v, y, f) + (n->dot_factor * n->dot_factor);
-  }
-
-  template<typename S, typename T, typename Random>
-  static inline bool side(const Node<S, T>* n, const T* y, int f, Random& random) {
-    T dot = margin(n, y, f);
-    if (dot != 0)
-      return (dot > 0);
-    else
-      return (bool)random.flip();
-  }
-
-  template<typename T>
-  static inline T normalized_distance(T distance) {
-    return -distance;
-  }
-
-  template<typename T, typename S, typename Node>
-  static inline void preprocess(void* nodes, size_t _s, const S node_count, const int f) {
-    // This uses a method from Microsoft Research for transforming inner product spaces to cosine/angular-compatible spaces.
-    // (Bachrach et al., 2014, see https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/XboxInnerProduct.pdf)
-
-    // Step one: compute the norm of each vector and store that in its extra dimension (f-1)
-    for (S i = 0; i < node_count; i++) {
-      Node* node = get_node_ptr<S, Node>(nodes, _s, i);
-      T d = dot(node->v, node->v, f);
-      T norm = d < 0 ? 0 : sqrt(d);
-      node->dot_factor = norm;
-    }
-
-    // Step two: find the maximum norm
-    T max_norm = 0;
-    for (S i = 0; i < node_count; i++) {
-      Node* node = get_node_ptr<S, Node>(nodes, _s, i);
-      if (node->dot_factor > max_norm) {
-        max_norm = node->dot_factor;
-      }
-    }
-
-    // Step three: set each vector's extra dimension to sqrt(max_norm^2 - norm^2)
-    for (S i = 0; i < node_count; i++) {
-      Node* node = get_node_ptr<S, Node>(nodes, _s, i);
-      T node_norm = node->dot_factor;
-      T squared_norm_diff = pow(max_norm, static_cast<T>(2.0)) - pow(node_norm, static_cast<T>(2.0));
-      T dot_factor = squared_norm_diff < 0 ? 0 : sqrt(squared_norm_diff);
-
-      node->dot_factor = dot_factor;
-    }
-  }
-};
-
-struct Hamming : Base {
-  template<typename S, typename T>
-  struct Node {
-    S n_descendants;
-    S children[2];
-    T v[ANNOYLIB_V_ARRAY_SIZE];
-  };
-
-  static const size_t max_iterations = 20;
-
-  template<typename T>
-  static inline T pq_distance(T distance, T margin, int child_nr) {
-    return distance - (margin != (unsigned int) child_nr);
-  }
-
-  template<typename T>
-  static inline T pq_initial_value() {
-    return numeric_limits<T>::max();
-  }
-  template<typename T>
-  static inline int cole_popcount(T v) {
-    // Note: Only used with MSVC 9, which lacks intrinsics and fails to
-    // calculate std::bitset::count for v > 32bit. Uses the generalized
-    // approach by Eric Cole.
-    // See https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSet64
-    v = v - ((v >> 1) & (T)~(T)0/3);
-    v = (v & (T)~(T)0/15*3) + ((v >> 2) & (T)~(T)0/15*3);
-    v = (v + (v >> 4)) & (T)~(T)0/255*15;
-    return (T)(v * ((T)~(T)0/255)) >> (sizeof(T) - 1) * 8;
-  }
-  template<typename S, typename T>
-  static inline T distance(const Node<S, T>* x, const Node<S, T>* y, int f) {
-    size_t dist = 0;
-    for (int i = 0; i < f; i++) {
-      dist += annoylib_popcount(x->v[i] ^ y->v[i]);
-    }
-    return dist;
-  }
-  template<typename S, typename T>
-  static inline bool margin(const Node<S, T>* n, const T* y, int f) {
-    static const size_t n_bits = sizeof(T) * 8;
-    T chunk = n->v[0] / n_bits;
-    return (y[chunk] & (static_cast<T>(1) << (n_bits - 1 - (n->v[0] % n_bits)))) != 0;
-  }
-  template<typename S, typename T, typename Random>
-  static inline bool side(const Node<S, T>* n, const T* y, int f, Random& random) {
-    return margin(n, y, f);
-  }
-  template<typename S, typename T, typename Random>
-  static inline void create_split(const vector<Node<S, T>*>& nodes, int f, size_t s, Random& random, Node<S, T>* n) {
-    size_t cur_size = 0;
-    size_t i = 0;
-    int dim = f * 8 * sizeof(T);
-    for (; i < max_iterations; i++) {
-      // choose random position to split at
-      n->v[0] = random.index(dim);
-      cur_size = 0;
-      for (typename vector<Node<S, T>*>::const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-        if (margin(n, (*it)->v, f)) {
-          cur_size++;
-        }
-      }
-      if (cur_size > 0 && cur_size < nodes.size()) {
-        break;
-      }
-    }
-    // brute-force search for splitting coordinate
-    if (i == max_iterations) {
-      int j = 0;
-      for (; j < dim; j++) {
-        n->v[0] = j;
-        cur_size = 0;
-        for (typename vector<Node<S, T>*>::const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
-          if (margin(n, (*it)->v, f)) {
-            cur_size++;
-          }
-        }
-        if (cur_size > 0 && cur_size < nodes.size()) {
-          break;
-        }
-      }
-    }
-  }
-  template<typename T>
-  static inline T normalized_distance(T distance) {
-    return distance;
-  }
-  template<typename S, typename T>
-  static inline void init_node(Node<S, T>* n, int f) {
-  }
-  static const char* name() {
-    return "hamming";
-  }
-};
-
-
-struct Minkowski : Base {
-  template<typename S, typename T>
-  struct Node {
-    S n_descendants;
-    T a; // need an extra constant term to determine the offset of the plane
-    S children[2];
-    T v[ANNOYLIB_V_ARRAY_SIZE];
-  };
-  template<typename S, typename T>
-  static inline T margin(const Node<S, T>* n, const T* y, int f) {
-    return n->a + dot(n->v, y, f);
-  }
-  template<typename S, typename T, typename Random>
-  static inline bool side(const Node<S, T>* n, const T* y, int f, Random& random) {
-    T dot = margin(n, y, f);
-    if (dot != 0)
-      return (dot > 0);
-    else
-      return (bool)random.flip();
-  }
-  template<typename T>
-  static inline T pq_distance(T distance, T margin, int child_nr) {
-    if (child_nr == 0)
-      margin = -margin;
-    return std::min(distance, margin);
-  }
-  template<typename T>
-  static inline T pq_initial_value() {
-    return numeric_limits<T>::infinity();
-  }
-};
-
-
-struct Euclidean : Minkowski {
-  template<typename S, typename T>
-  static inline T distance(const Node<S, T>* x, const Node<S, T>* y, int f) {
-    return euclidean_distance(x->v, y->v, f);    
-  }
-  template<typename S, typename T, typename Random>
-  static inline void create_split(const vector<Node<S, T>*>& nodes, int f, size_t s, Random& random, Node<S, T>* n) {
-    Node<S, T>* p = (Node<S, T>*)alloca(s);
-    Node<S, T>* q = (Node<S, T>*)alloca(s);
-    two_means<T, Random, Euclidean, Node<S, T> >(nodes, f, random, false, p, q);
-
-    for (int z = 0; z < f; z++)
-      n->v[z] = p->v[z] - q->v[z];
-    Base::normalize<T, Node<S, T> >(n, f);
-    n->a = 0.0;
-    for (int z = 0; z < f; z++)
-      n->a += -n->v[z] * (p->v[z] + q->v[z]) / 2;
-  }
-  template<typename T>
-  static inline T normalized_distance(T distance) {
-    return sqrt(std::max(distance, T(0)));
-  }
-  template<typename S, typename T>
-  static inline void init_node(Node<S, T>* n, int f) {
-  }
-  static const char* name() {
-    return "euclidean";
-  }
-
-};
-
-struct Manhattan : Minkowski {
-  template<typename S, typename T>
-  static inline T distance(const Node<S, T>* x, const Node<S, T>* y, int f) {
-    return manhattan_distance(x->v, y->v, f);
-  }
-  template<typename S, typename T, typename Random>
-  static inline void create_split(const vector<Node<S, T>*>& nodes, int f, size_t s, Random& random, Node<S, T>* n) {
-    Node<S, T>* p = (Node<S, T>*)alloca(s);
-    Node<S, T>* q = (Node<S, T>*)alloca(s);
-    two_means<T, Random, Manhattan, Node<S, T> >(nodes, f, random, false, p, q);
-
-    for (int z = 0; z < f; z++)
-      n->v[z] = p->v[z] - q->v[z];
-    Base::normalize<T, Node<S, T> >(n, f);
-    n->a = 0.0;
-    for (int z = 0; z < f; z++)
-      n->a += -n->v[z] * (p->v[z] + q->v[z]) / 2;
-  }
-  template<typename T>
-  static inline T normalized_distance(T distance) {
-    return std::max(distance, T(0));
-  }
-  template<typename S, typename T>
-  static inline void init_node(Node<S, T>* n, int f) {
-  }
-  static const char* name() {
-    return "manhattan";
-  }
-};
 
 template<typename S, typename T, typename R = uint64_t>
 class AnnoyIndexInterface {
@@ -1419,10 +928,29 @@ protected:
     // 2. Root nodes with only 1 child need to be a "dummy" parent
     // 3. Due to the _n_items "hack", we need to be careful with the cases where _n_items <= _K or _n_items > _K
 
+    auto start_all = std::chrono::high_resolution_clock::now();
+    auto stop_all = std::chrono::high_resolution_clock::now();
+    auto duration_all = std::chrono::duration_cast<std::chrono::microseconds>(stop_all - start_all);
+
+    auto start = std::chrono::high_resolution_clock::now();
+    auto stop = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+
+
+
+    start_all = std::chrono::high_resolution_clock::now();
+
+
+
+
+
+
     if (indices.size() == 1 && !is_root)
       return indices[0];
 
 
+ 
+ 
     // a leaf node.
     if (indices.size() <= (size_t)_K && \
             (!is_root || (size_t)_n_items <= (size_t)_K || indices.size() == 1)) {
@@ -1435,18 +963,12 @@ protected:
       // threaded_build_policy.unlock_n_nodes();
 
 
-
-
-
       // threaded_build_policy.lock_shared_nodes();
 
       Node* m = _get(item);
       m->n_descendants = is_root ? _n_items : (S)indices.size();
 
-      // Using std::copy instead of a loop seems to resolve issues #3 and #13,
-      // probably because gcc 4.8 goes overboard with optimizations.
-      // Using memcpy instead of std::copy for MSVC compatibility. #235
-      // Only copy when necessary to avoid crash in MSVC 9. #293
+      // use all spaces for vector to store > 2 child indices.
       if (!indices.empty())
         memcpy(m->children, &indices[0], indices.size() * sizeof(S));
 
@@ -1456,9 +978,9 @@ protected:
 
 
 
+
+
     // an internal node
-
-
 
     // // no need lock? since all access to shared data are read-only?
     // threaded_build_policy.lock_shared_nodes(); 
@@ -1473,15 +995,28 @@ protected:
     vector<S> children_indices[2];
     Node* m = (Node*)alloca(_s);
 
+
+
+
     for (int attempt = 0; attempt < 3; attempt++) {
 
       children_indices[0].clear();
       children_indices[1].clear();
 
       // `children` is read-only.
-      D::create_split(children, _f, _s, _random, m);
+      // only need 200 nodes, and not all nodes in `children`, which could be several GBs.
+      D::create_split(children, _f, _s, _random, m); 
 
-      for (size_t i = 0; i < indices.size(); i++) {
+
+      // Can be batched to compute on GPU (compute sides for 1st 1 million vectors in indices, 
+                   // return to host 1 million bool values (sides), then 2nd, and so on).
+      // Launch kernels for all batches at a time in the same stream.
+      // allocate children_indices using cudaMallocManaged(), which can use disk swap space.
+      // allocate space for node batches (small) using cudaMalloc().
+
+      start = std::chrono::high_resolution_clock::now();
+
+      for (size_t i = 0; i < indices.size(); i++) { 
         
         S j = indices[i];
         Node* n = _get(j);
@@ -1491,10 +1026,15 @@ protected:
           bool side = D::side(m, n->v, _f, _random);
           children_indices[side].push_back(j);
         } 
-        else {
-          annoylib_showUpdate("No node for index %d?\n", j);
-        }
+        // else {
+        //   annoylib_showUpdate("No node for index %d?\n", j);
+        // }
       }
+
+      stop = std::chrono::high_resolution_clock::now();
+      duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+      std::cout<<"time-split: "<< duration.count() / 1000. <<" msec"<< std::endl;
+
 
       if (_split_imbalance(children_indices[0], children_indices[1]) < 0.95)
         break;
@@ -1506,9 +1046,10 @@ protected:
 
     // If we didn't find a hyperplane, just randomize sides as a last option
     while (_split_imbalance(children_indices[0], children_indices[1]) > 0.99) {
-      if (_verbose)
-        annoylib_showUpdate("\tNo hyperplane found (left has %ld children, right has %ld children)\n",
-          children_indices[0].size(), children_indices[1].size());
+      
+      // if (_verbose)
+      //   annoylib_showUpdate("\tNo hyperplane found (left has %ld children, right has %ld children)\n",
+      //     children_indices[0].size(), children_indices[1].size());
 
       children_indices[0].clear();
       children_indices[1].clear();
@@ -1528,10 +1069,16 @@ protected:
     int flip = (children_indices[0].size() > children_indices[1].size());
 
 
+    stop_all = std::chrono::high_resolution_clock::now();
+    duration_all = std::chrono::duration_cast<std::chrono::microseconds>(stop_all - start_all);
+    std::cout<<"time-all: "<<duration_all.count() / 1000. <<" msec"<< std::endl;
+
+
     m->n_descendants = is_root ? _n_items : (S)indices.size();
     for (int side = 0; side < 2; side++) {
       // run _make_tree for the smallest child first (for cache locality)
-      m->children[side^flip] = _make_tree(children_indices[side^flip], false, _random, threaded_build_policy);
+      m->children[side^flip] = _make_tree(children_indices[side^flip], false,
+                                       _random, threaded_build_policy);
     }
 
 
