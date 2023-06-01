@@ -1411,7 +1411,8 @@ protected:
 
 
 
-  S _make_tree(const vector<S>& indices, bool is_root, Random& _random, ThreadedBuildPolicy& threaded_build_policy) {
+  S _make_tree(const vector<S>& indices, bool is_root, Random& _random, 
+                              ThreadedBuildPolicy& threaded_build_policy) {
     // The basic rule is that if we have <= _K items, then it's a leaf node, otherwise it's a split node.
     // There's some regrettable complications caused by the problem that root nodes have to be "special":
     // 1. We identify root nodes by the arguable logic that _n_items == n->n_descendants, regardless of how many descendants they actually have
@@ -1424,7 +1425,7 @@ protected:
 
     // a leaf node.
     if (indices.size() <= (size_t)_K && \
-            (!is_root || (size_t)_n_items <= (size_t)_K || indices. size() == 1)) {
+            (!is_root || (size_t)_n_items <= (size_t)_K || indices.size() == 1)) {
    
       // threaded_build_policy.lock_n_nodes();
       

@@ -42,35 +42,72 @@ void kernel1_cpu(long long N){
 
 int main(int argc, char **argv)
 {
-    long long N = 25 * ((long long)1e9);
-    size_t size = N * sizeof(float);
-    printf("size allocated: %lld GB\n", ((long long)size) / ((long long)1e9));
     
-    float *arr;
+    long long N = 1 * ((long long)1e6);
+    size_t size = N * sizeof(float);    
 
-    cudaMallocManaged(&arr, size);
+    size_t granularity = 0;
+    CUmemGenericAllocationHandle allocHandle;
 
-    int n_blocks = 32;
-    int n_threads_per_block = 128;
-    kernel1<<<n_blocks, n_threads_per_block>>>(arr, N, n_threads_per_block * n_blocks);
+    CUmemAllocationProp prop = {};
+    prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+    prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+    prop.location.id = currentDev;
 
-    cudaDeviceSynchronize();
-    printf("kernel done\n");
-
-    float sum = 0;
-    for(long long i = 0; i < N; i++){
-        sum += arr[i];
-    }
-
-    printf("gpu: %f\n", sum);
-    cudaFree(arr);
-    
-    kernel1_cpu(N);
-
-    
+    cuMemGetAllocationGranularity(&granularity, &prop,
+                                            CU_MEM_ALLOC_GRANULARITY_MINIMUM);
+    padded_size = ROUND_UP(size, granularity);
+    cuMemCreate(&allocHandle, padded_size, &prop, 0);     
 
     return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+// int main(int argc, char **argv)
+// {
+//     long long N = 25 * ((long long)1e9);
+//     size_t size = N * sizeof(float);
+//     printf("size allocated: %lld GB\n", ((long long)size) / ((long long)1e9));
+    
+//     float *arr;
+
+//     cudaMallocManaged(&arr, size);
+
+//     int n_blocks = 32;
+//     int n_threads_per_block = 128;
+//     kernel1<<<n_blocks, n_threads_per_block>>>(arr, N, n_threads_per_block * n_blocks);
+
+//     cudaDeviceSynchronize();
+//     printf("kernel done\n");
+
+//     float sum = 0;
+//     for(long long i = 0; i < N; i++){
+//         sum += arr[i];
+//     }
+
+//     printf("gpu: %f\n", sum);
+//     cudaFree(arr);
+    
+//     kernel1_cpu(N);
+
+    
+
+//     return 0;
+// }
+
+
+
 
 
 
