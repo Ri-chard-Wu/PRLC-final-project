@@ -70,76 +70,79 @@ int precision(int f=40, int n=1000000){
 
 
 	//******************************************************
-	std::vector<int> limits = {10, 100, 1000, 10000};
-	int K=10;
-	int prec_n = 1000;
 
-	std::map<int, double> prec_sum;
-	std::map<int, double> time_sum;
-	std::vector<int> closest;
 
-	//init precision and timers map
-	for(std::vector<int>::iterator it = limits.begin(); 
-									it != limits.end(); ++it){
-		prec_sum[(*it)] = 0.0;
-		time_sum[(*it)] = 0.0;
-	}
+	// std::vector<int> limits = {10, 100, 1000, 10000};
+	// int K=10;
+	// int prec_n = 1000;
 
-	// test precision with `prec_n` random number.
-	for(int i = 0; i < prec_n; ++i){
+	// std::map<int, double> prec_sum;
+	// std::map<int, double> time_sum;
+	// std::vector<int> closest;
 
-		// select a random node
-		int j = rand() % n;
+	// //init precision and timers map
+	// for(std::vector<int>::iterator it = limits.begin(); 
+	// 								it != limits.end(); ++it){
+	// 	prec_sum[(*it)] = 0.0;
+	// 	time_sum[(*it)] = 0.0;
+	// }
 
-		std::cout << "finding nbs for " << j << std::endl;
 
-		// getting the K closest
-		// search all n nodes, very slow but accurate.
-		t.get_nns_by_item(j, K, n, &closest, nullptr);
+	// // test precision with `prec_n` random number.
+	// for(int i = 0; i < prec_n; ++i){
 
-		std::vector<int> toplist;
-		std::vector<int> intersection;
+	// 	// select a random node
+	// 	int j = rand() % n;
 
-		for(std::vector<int>::iterator limit = limits.begin(); 
-										limit!=limits.end(); ++limit){
+	// 	std::cout << "finding nbs for " << j << std::endl;
 
-			t_start = std::chrono::high_resolution_clock::now();
+	// 	// getting the K closest
+	// 	// search all n nodes, very slow but most accurate achievable.
+	// 	t.get_nns_by_item(j, K, n, &closest, nullptr);
 
-			//search_k defaults to "n_trees * (*limit)" (which is  << n) if not provided.
-			t.get_nns_by_item(j, (*limit), (size_t) -1, &toplist, nullptr); 
+	// 	std::vector<int> toplist;
+	// 	std::vector<int> intersection;
+
+	// 	for(std::vector<int>::iterator limit = limits.begin(); 
+	// 									limit!=limits.end(); ++limit){
+
+	// 		t_start = std::chrono::high_resolution_clock::now();
+
+	// 		//search_k defaults to "n_trees * (*limit)" (which is  << n) if not provided (pass -1).
+	// 		t.get_nns_by_item(j, (*limit), (size_t) -1, &toplist, nullptr); 
 
 			
-			t_end = std::chrono::high_resolution_clock::now();
-			auto duration = std::chrono::duration_cast\
-					<std::chrono::milliseconds>( t_end - t_start ).count();
+	// 		t_end = std::chrono::high_resolution_clock::now();
+	// 		auto duration = std::chrono::duration_cast\
+	// 				<std::chrono::milliseconds>( t_end - t_start ).count();
 
-			std::sort(closest.begin(), closest.end(), std::less<int>());
-			std::sort(toplist.begin(), toplist.end(), std::less<int>());
+	// 		std::sort(closest.begin(), closest.end(), std::less<int>());
+	// 		std::sort(toplist.begin(), toplist.end(), std::less<int>());
 
-			intersection.resize(std::max(closest.size(), toplist.size()));
+	// 		intersection.resize(std::max(closest.size(), toplist.size()));
 			
-			std::vector<int>::iterator it_set = \
-				std::set_intersection(closest.begin(), closest.end(), \
-					toplist.begin(), toplist.end(), intersection.begin());
+	// 		std::vector<int>::iterator it_set = \
+	// 			std::set_intersection(closest.begin(), closest.end(), \
+	// 				toplist.begin(), toplist.end(), intersection.begin());
 
-			intersection.resize(it_set-intersection.begin());
+	// 		intersection.resize(it_set-intersection.begin());
 
-			int found = intersection.size();
-			double hitrate = found / (double) K;
-			prec_sum[(*limit)] += hitrate;
-			time_sum[(*limit)] += duration;
+	// 		int found = intersection.size();
+	// 		double hitrate = found / (double) K;
+	// 		prec_sum[(*limit)] += hitrate;
+	// 		time_sum[(*limit)] += duration;
 
-			vector<int>().swap(intersection);
-			vector<int>().swap(toplist);
-		}
+	// 		vector<int>().swap(intersection);
+	// 		vector<int>().swap(toplist);
+	// 	}
 
-		for(std::vector<int>::iterator limit = limits.begin(); limit!=limits.end(); ++limit){
-			std::cout << "limit: " << (*limit) << "\tprecision: "<< std::fixed << std::setprecision(2) << (100.0 * prec_sum[(*limit)] / (i + 1)) << "% \tavg. time: "<< std::fixed<< std::setprecision(6) << (time_sum[(*limit)] / (i + 1)) * 1e-04 << "s" << std::endl;
-		}
+	// 	for(std::vector<int>::iterator limit = limits.begin(); limit!=limits.end(); ++limit){
+	// 		std::cout << "limit: " << (*limit) << "\tprecision: "<< std::fixed << std::setprecision(2) << (100.0 * prec_sum[(*limit)] / (i + 1)) << "% \tavg. time: "<< std::fixed<< std::setprecision(6) << (time_sum[(*limit)] / (i + 1)) * 1e-04 << "s" << std::endl;
+	// 	}
 
-		closest.clear(); 
-		vector<int>().swap(closest);
-	}
+	// 	closest.clear(); 
+	// 	vector<int>().swap(closest);
+	// }
 
 	std::cout << "\nDone" << std::endl;
 	return 0;
@@ -150,7 +153,12 @@ int precision(int f=40, int n=1000000){
 
 
 int main(int argc, char **argv) {
-	
+
+// #ifdef __linux__
+// 	printf("--------------------__linux__ defined\n");
+
+// #endif
+
 	int f, n;
 
 	f = 40;
